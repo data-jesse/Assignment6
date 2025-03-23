@@ -1,0 +1,185 @@
+---
+title: "Assignment 6"
+author: "Jesse Y"
+date: "2025-03-21"
+output:
+  rmdformats::readthedown:
+    self_contained: true
+    number_sections: false
+    toc_float: true
+    toc_depth: 3
+    lightbox: true
+    gallery: true
+    highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# **Introduction**
+
+This assignment explores count data models using the Diabetes Health Indicators Dataset. This analysis focuses on modeling the number of mentally unhealthy days reported in the past 30 days, using health and lifestyle predictors such as age, high blood pressure, and physical activity.
+
+# **Data Preparation**
+
+## Load Packages
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+library(tidyverse)
+library(janitor)
+library(AER)
+library(MASS)
+library(pscl)
+library(clarify)
+library(texreg)
+library(dplyr)
+```
+
+## Load and Clean Dataset
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+
+diabetes <- read_csv("Diabetes Health Indicators.csv")
+diabetes <- clean_names(diabetes)
+
+# Select relevant variables
+diabetes_model <- diabetes %>%
+  dplyr::select(ment_hlth, high_bp, age, phys_activity) %>%
+  drop_na() %>%
+  mutate(
+    high_bp = factor(high_bp, labels = c("No", "Yes")),
+    phys_activity = factor(phys_activity, labels = c("No", "Yes")),
+    age = as.numeric(age)
+  )
+
+# Preview
+glimpse(diabetes_model)
+```
+
+The summary statistics provide context on key variables. The `ment_hlth` variable is right-skewed with a median of 0 days, while age ranges from 1 to 13, reflecting coded age groups.
+
+# **Exploratory Analysis**
+
+## Outcome Distribution
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+ggplot(diabetes_model, aes(x = ment_hlth)) +
+  geom_histogram(binwidth = 1, fill = "steelblue") +
+  labs(title = "Distribution of Mentally Unhealthy Days", x = "Days", y = "Frequency") +
+  theme_minimal()
+```
+
+
+## Summary Statistics
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+
+# Print numeric summary of key variables
+summary(diabetes_model)
+```
+
+# **Model Building**
+
+## Poisson Regression
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+poisson_model <- glm(ment_hlth ~ high_bp + age + phys_activity,
+                     family = poisson(link = "log"),
+                     data = diabetes_model)
+summary(poisson_model)
+```
+
+## Overdispersion Test
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+dispersiontest(poisson_model)
+```
+
+A significant p-value suggests overdispersion. This justifies exploring a Negative Binomial model.
+
+## Negative Binomial Regression Model
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+nb_model <- MASS::glm.nb(ment_hlth ~ high_bp + age + phys_activity, data = diabetes_model)
+summary(nb_model)
+```
+
+
+# **Model Comparison**
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+htmlreg(list(poisson_model, nb_model),
+        custom.model.names = c("Poisson", "Negative Binomial"),
+        caption = "Model Comparison: Poisson vs Negative Binomial")
+```
+
+
+# **Simulation-Based Interpretation**
+
+## Average Marginal Effects (AME)
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+options(clarify.sim = 500)
+nb_sim <- sim(nb_model)
+
+ame_bp <- sim_ame(nb_sim, var = "high_bp", contrast = "rd")
+summary(ame_bp)
+
+ame_phys <- sim_ame(nb_sim, var = "phys_activity", contrast = "rd")
+summary(ame_phys)
+
+```
+
+
+## Dose-Response Relationship for Age
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+# Create a sequence of age values for prediction
+age_seq <- seq(min(diabetes_model$age), max(diabetes_model$age), by = 1)
+
+# Create a new dataframe for prediction - hold other variables constant
+new_data <- data.frame(
+  age = age_seq,
+  high_bp = factor("Yes", levels = c("No", "Yes")),
+  phys_activity = factor("No", levels = c("No", "Yes"))
+)
+
+# Get predicted values and confidence intervals
+new_data$fit <- predict(nb_model, newdata = new_data, type = "response")
+pred_se <- predict(nb_model, newdata = new_data, type = "link", se.fit = TRUE)$se.fit
+
+# Confidence intervals (on response scale)
+new_data$lower <- qpois(0.025, lambda = new_data$fit)
+new_data$upper <- qpois(0.975, lambda = new_data$fit)
+
+# Plot
+ggplot(new_data, aes(x = age, y = fit)) +
+  geom_line(color = "blue") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  labs(
+    title = "Predicted Mentally Unhealthy Days by Age",
+    x = "Age", y = "Predicted Mentally Unhealthy Days"
+  ) +
+  theme_minimal()
+
+```
+
+
+# **Interpretation of Results**
+
+- **Overdispersion Detected**: The dispersion test confirmed overdispersion in the Poisson model, which validates the use of the Negative Binomial model.
+
+- **Physical Activity**: Simulation results show that individuals who are physically active report ~2.3 fewer mentally unhealthy days on average.
+
+- **High Blood Pressure**: Respondents with high blood pressure experience ~1.3 more mentally unhealthy days, on average.
+
+- **Age**: The predicted number of unhealthy days increases with age, suggesting a dose-response effect.
+
+
+# **Why This Matters**
+
+Simulations allow us to move beyond raw coefficients and express effects in real-world terms (like number of days), with confidence intervals. This makes interpretation more intuitive and communication of results more accessible to wider audiences.
+
+# **Conclusion**
+
+Count data models like Poisson and Negative Binomial are powerful tools in public health research. In this analysis, we demonstrated how health and lifestyle factors such as high blood pressure, physical activity, and age influence mental health outcomes. The `clarify` package helped communicate effects more clearly through simulation and visualization. Future work could extend this model by examining interaction effects or additional predictors. These findings highlight the importance of preventative strategies—such as promoting physical activity—to mitigate poor mental health outcomes. Identifying at-risk populations (e.g., older adults with high blood pressure) allows for more targeted interventions.
+
+
