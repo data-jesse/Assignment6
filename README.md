@@ -38,6 +38,7 @@ The goal is to:
 | File | Description |
 |------|-------------|
 | `Assignment 6.Rmd` | R Markdown file with full analysis |
+| `Diabetes Health Indicators.csv` | Cleaned dataset used in the analysis |
 | `README.md` | This file |
 | _Note:_ Output is in `readthedown` format, which is rendered via RStudio’s viewer or RPubs. No PDF or HTML file is included in this repo.
 
